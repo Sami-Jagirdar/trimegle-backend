@@ -4,6 +4,7 @@ import * as https from "https";
 import express, { Express, Request, Response } from "express";
 import cors from "cors";
 import { db } from "./firebase";
+import {collection, addDoc, getDocs, query, where, limit} from 'firebase/firestore';
 
 dotenv.config();
 const app: Express = express();
@@ -20,9 +21,27 @@ const io = new Server(httpServer, {
 
 io.on("connection", (socket) => {
 
-    socket.on("join_room", (ice_candidates) => {
+    socket.on("join_room", async (ice_candidates) => {
         // TODO: broadcast the ice candidates to everyone in the room and emit
+        const openRoomsQuery = query(collection(db,"Rooms"), where("open","==",true), limit(1));
+        const openRoomSnapshot = await getDocs(openRoomsQuery);
+        if (!openRoomSnapshot.empty) {
+            const openRoom = openRoomSnapshot.docs[0];
+            socket.join(openRoom.id);
+            io.to(openRoom.id).emit("new_participant",ice_candidates);
+            // socket.on("existing_ice_candidates", () => {
+
+            // })
+        }
+        else {
+            // TODO Add new room here
+        }
+
+
+
         
+        
+
     })
 
 })
