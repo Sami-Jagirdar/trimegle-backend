@@ -4,7 +4,7 @@ import * as https from "https";
 import express, { Express, Request, Response } from "express";
 import cors from "cors";
 import { db } from "./firebase";
-import {collection, addDoc, getDocs, query, where, limit} from 'firebase/firestore';
+import {collection, addDoc, getDocs, query, where, limit, setDoc, doc, updateDoc, increment, getDoc} from 'firebase/firestore';
 
 dotenv.config();
 const app: Express = express();
@@ -21,26 +21,50 @@ const io = new Server(httpServer, {
 
 io.on("connection", (socket) => {
 
-    socket.on("join_room", async (ice_candidates) => {
-        // TODO: broadcast the ice candidates to everyone in the room and emit
+    socket.on("join_room", async () => {
+
+        // Currently Rooms documents schema looks like {documentID: string, participants: string[], open: boolean}
+        // Might see if denormalization is required with the participants field
+
+        // TODO: Must encapsulate all of the below code involving firestore read and rights in a transaction to ensure concurrency is met
         const openRoomsQuery = query(collection(db,"Rooms"), where("open","==",true), limit(1));
         const openRoomSnapshot = await getDocs(openRoomsQuery);
         if (!openRoomSnapshot.empty) {
             const openRoom = openRoomSnapshot.docs[0];
-            socket.join(openRoom.id);
-            io.to(openRoom.id).emit("new_participant",ice_candidates);
-            // socket.on("existing_ice_candidates", () => {
 
-            // })
+            const openRoomRef = doc(db,"Rooms",openRoom.id);
+
+            // Destructuring the data and not including the roomID because it's not necessary and destructuring understands this
+            const openRoomData = (await getDoc(openRoomRef)).data() as {participants: string[], open: boolean}; 
+            openRoomData.participants.push(socket.id);
+            updateDoc(openRoomRef, {
+                participants: openRoomData.participants
+            })
+            
+            if (openRoomData.participants.length>=3) {
+                updateDoc(openRoomRef, {
+                    open: false
+                })
+            }
+
+            socket.join(openRoom.id);
+
+            // This socket id allows other users to send their offer/answers
+            socket.to(openRoom.id).emit("new peer", socket.id) 
+
+            // This emit is for the client themselves to let them know a room was successfully joined
+            socket.emit('room joined', openRoom.id);
         }
         else {
-            // TODO Add new room here
+            const newRoomRef = await addDoc(collection(db, "Rooms"), {
+                participants: [socket.id],
+                open: true
+            });
+            console.log("Added new room with ID: ",newRoomRef.id)
+
+            socket.join(newRoomRef.id);
+            socket.emit('room joined', newRoomRef.id);
         }
-
-
-
-        
-        
 
     })
 
