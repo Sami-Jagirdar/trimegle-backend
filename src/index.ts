@@ -19,14 +19,24 @@ const io = new Server(httpServer, {
         methods: ["GET", "POST"]
 }});
 
+interface Participant {
+    userId: string;
+    socketId: string;
+}
+
+interface Room {
+    participants: Participant[];
+    open: boolean;
+}
+
 io.on("connection", (socket) => {
 
-    socket.on("join_room", async () => {
+    socket.on("join_room", async (userId) => {
 
-        // Currently Rooms documents schema looks like {documentID: string, participants: string[], open: boolean}
+        // Currently Rooms documents schema looks like {documentID: string, participants: subcollection->{socketID: string, userID: string}, open: boolean}
         // Might see if denormalization is required with the participants field
 
-        // TODO: Must encapsulate all of the below code involving firestore read and rights in a transaction to ensure concurrency is met
+        // TODO: Must encapsulate all of the below code involving firestore room management in a transaction to ensure concurrency is met
         const openRoomsQuery = query(collection(db,"Rooms"), where("open","==",true), limit(1));
         const openRoomSnapshot = await getDocs(openRoomsQuery);
         if (!openRoomSnapshot.empty) {
@@ -35,8 +45,8 @@ io.on("connection", (socket) => {
             const openRoomRef = doc(db,"Rooms",openRoom.id);
 
             // Destructuring the data and not including the roomID because it's not necessary and destructuring understands this
-            const openRoomData = (await getDoc(openRoomRef)).data() as {participants: string[], open: boolean}; 
-            openRoomData.participants.push(socket.id);
+            const openRoomData = (await getDoc(openRoomRef)).data() as Room; 
+            openRoomData.participants.push({userId, socketId: socket.id});
             updateDoc(openRoomRef, {
                 participants: openRoomData.participants
             })
@@ -50,7 +60,7 @@ io.on("connection", (socket) => {
             socket.join(openRoom.id);
 
             // This socket id allows other users to send their offer/answers
-            socket.to(openRoom.id).emit("new peer", socket.id) 
+            socket.broadcast.to(openRoom.id).emit("new peer", socket.id) 
 
             // This emit is for the client themselves to let them know a room was successfully joined
             socket.emit('room joined', openRoom.id);
@@ -67,6 +77,43 @@ io.on("connection", (socket) => {
         }
 
     })
+
+    socket.on("offer", ({fromID, toID, sdp}) => {
+        io.to(toID).emit("getOffer", {fromID, sdp});
+        console.log("offer by: "+ socket.id);
+    });
+
+    socket.on("answer", ({fromID, toID, sdp}) => {
+        io.to(toID).emit("getAnswer", {fromID, sdp})
+        console.log("answer by: "+ socket.id);
+    });
+
+    socket.on("candidate", ({fromID, toID, candidate}) => {
+        io.to(toID).emit("getCandidate", {fromID, candidate})
+        console.log("candidate by: "+ socket.id); 
+    });
+
+    socket.on("add participant", async (roomID) => {
+        const currentRoomRef = doc(db,"Rooms",roomID);
+        const currentRoomData = (await getDoc(currentRoomRef)).data() as Room; 
+        if (currentRoomData.participants.length < 3) {
+            updateDoc(currentRoomRef, {
+                open: true
+            });
+        }
+    });
+
+    socket.on("next room", async (currentRoomID) => {
+        const currentRoomRef = doc(db,"Rooms",currentRoomID);
+        const currentRoomData = (await getDoc(currentRoomRef)).data() as Room; 
+        updateDoc(currentRoomRef, {
+            participants: currentRoomData.participants.filter(participant => participant.socketId !== socket.id)
+        });
+    });
+
+    socket.on("leave room", (currentRoomID) => {
+        
+    });
 
 })
 
