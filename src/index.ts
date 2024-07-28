@@ -34,7 +34,7 @@ io.on("connection", (socket) => {
     socket.on("join_room", async (userId) => {
 
         // Currently Rooms documents schema looks like {documentID: string, participants: subcollection->{socketID: string, userID: string}, open: boolean}
-        // Might see if denormalization is required with the participants field
+        // Might have to change the architecture to use in-memory cache systems like Redis instead (Faster and room data doesn't need to persist)
 
         // TODO: Must encapsulate all of the below code involving firestore room management in a transaction to ensure concurrency is met
         const openRoomsQuery = query(collection(db,"Rooms"), where("open","==",true), limit(1));
@@ -103,16 +103,25 @@ io.on("connection", (socket) => {
         }
     });
 
-    socket.on("next room", async (currentRoomID) => {
+    socket.on("leave room", async (currentRoomID) => {
         const currentRoomRef = doc(db,"Rooms",currentRoomID);
         const currentRoomData = (await getDoc(currentRoomRef)).data() as Room; 
-        updateDoc(currentRoomRef, {
-            participants: currentRoomData.participants.filter(participant => participant.socketId !== socket.id)
-        });
-    });
+        const remainingParticipants = currentRoomData.participants.filter(participant => participant.socketId !== socket.id)
 
-    socket.on("leave room", (currentRoomID) => {
+        if (remainingParticipants.length === 0) {
+            updateDoc(currentRoomRef, {
+                participants: remainingParticipants,
+                open: true
+            });
+        } else {
+            updateDoc(currentRoomRef, {
+                participants: remainingParticipants,
+                open: false
+            });
+            socket.broadcast.to(currentRoomID).emit("participant left", socket.id);
+        }
         
+        socket.leave(currentRoomID);
     });
 
 })
