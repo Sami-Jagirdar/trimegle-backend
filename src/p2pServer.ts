@@ -1,14 +1,16 @@
 // Starts the server that listens for new connection requests.
 import { Server, Socket } from 'socket.io';
 import express from "express";
-import http from "http";
+import https from "https";
+import 'dotenv/config';
 
 const app = express();
-const server = http.createServer(app);
+const server = https.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*" // For now accepts all origins, but in prod will be restricted
-  }
+    origin: process.env.CORS_WHITELIST,
+    methods: ["GET", "POST"],
+  },
 });
 
 const activeUsers: Record<string, User> = {};
@@ -80,3 +82,7 @@ io.on("connection", (socket: Socket) => {
   });
 
 })
+
+server.listen(process.env.PORT, () => {
+  console.log("Server listening on ", process.env.PORT);
+});

@@ -2,29 +2,32 @@
   "name": "node-typescript-boilerplate",
   "version": "0.0.0",
   "description": "Minimalistic boilerplate to quick-start Node.js development in TypeScript.",
-  "type": "module",
   "engines": {
     "node": ">= 22.11 < 23"
   },
   "devDependencies": {
     "@eslint/js": "~9.17",
     "@types/eslint__js": "~8.42",
+    "@types/express": "^5.0.3",
     "@types/node": "~20",
     "@typescript-eslint/parser": "~8.19",
     "@vitest/coverage-v8": "~2.1",
     "@vitest/eslint-plugin": "~1.1",
+    "dotenv": "^17.2.2",
     "eslint": "~9.17",
     "eslint-config-prettier": "~9.1",
     "globals": "~15.14",
+    "nodemon": "^3.1.10",
     "prettier": "~3.4",
     "rimraf": "~6.0",
     "ts-api-utils": "~2.0",
+    "ts-node": "^10.9.2",
     "typescript": "~5.7",
     "typescript-eslint": "~8.19",
     "vitest": "~2.1"
   },
   "scripts": {
-    "start": "node build/src/main.js",
+    "start": "node dist/p2pServer.js",
     "clean": "rimraf coverage build tmp",
     "prebuild": "npm run lint",
     "build": "tsc -p tsconfig.json",
@@ -35,7 +38,8 @@
     "test:coverage": "vitest run unit --config __tests__/vitest.config.ts --coverage.enabled --coverage.all",
     "prettier": "prettier \"{src,__{tests}__}/**/*.{ts,mts}\" --config .prettierrc --write",
     "prettier:check": "prettier \"{src,__{tests}__}/**/*.{ts,mts}\" --config .prettierrc --check",
-    "test:watch": "vitest unit"
+    "test:watch": "vitest unit",
+    "devp2p": "nodemon --exec npx ts-node --files src/p2pServer.ts"
   },
   "author": "Jakub Synowiec <jsynowiec@users.noreply.github.com>",
   "license": "Apache-2.0",
