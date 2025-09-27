@@ -7,9 +7,11 @@ import { nanoid } from 'nanoid';
 
 const app = express();
 const server = http.createServer(app);
+const allowedOrigins = process.env.CORS_WHITELIST?.split(",") || [];
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_WHITELIST,
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
   },
 });
@@ -60,7 +62,8 @@ io.on("connection", (socket: Socket) => {
     }
 
     // send back the roomId to just this client
-    ack({ roomId: room.id });
+    const otherMembers = room.members.filter(m => m.id !== socket.id).map(m => m.id);
+    ack({ roomId: room.id, members: otherMembers });
 
   });
 
