@@ -1,11 +1,12 @@
 // Starts the server that listens for new connection requests.
 import { Server, Socket } from 'socket.io';
 import express from "express";
-import https from "https";
+import http from "http"; // TODO: http in dev, https in prod
 import 'dotenv/config';
+import { nanoid } from 'nanoid';
 
 const app = express();
-const server = https.createServer(app);
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.CORS_WHITELIST,
@@ -25,7 +26,7 @@ function findAvailableRoom(): Room | null {
 }
 
 io.on("connection", (socket: Socket) => {
-  console.log("New client: ", socket.id);
+  console.log("new client: ", socket.id);
 
   // TODO Must create a schema for the socket.data and ensure it has name property
   const user = {
@@ -37,11 +38,11 @@ io.on("connection", (socket: Socket) => {
   activeUsers[socket.id] = user;
 
   // **User attempts to join a room
-  socket.on("join", () => {
+  socket.on("join", (ack) => {
     let room = findAvailableRoom();
     if (!room) {
       room = {
-        id: socket.id, // use first socketID as roomID
+        id: nanoid(10),
         members: [],
         available: true,
       }
@@ -57,6 +58,10 @@ io.on("connection", (socket: Socket) => {
     if (room.members.length >= 3) {
       room.available = false;
     }
+
+    // send back the roomId to just this client
+    ack({ roomId: room.id });
+
   });
 
   // **Have to create an event for users voting to kick
@@ -86,3 +91,4 @@ io.on("connection", (socket: Socket) => {
 server.listen(process.env.PORT, () => {
   console.log("Server listening on ", process.env.PORT);
 });
+
