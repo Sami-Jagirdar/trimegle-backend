@@ -54,16 +54,14 @@ io.on("connection", (socket: Socket) => {
     room.members.push(user);
     socket.join(room.id);
 
-    // Since new user joined, the other users initiate a p2p connection with them
-    io.to(room.id).emit("new-peer", {user: user});
+    // Let new participant know they joined the room so they can send offers on client side
+    const otherMembers = room.members.filter(m => m.id !== socket.id).map(m => m.id);
+    ack({ members: otherMembers });
 
     if (room.members.length >= 3) {
       room.available = false;
     }
 
-    // send back the roomId to just this client
-    const otherMembers = room.members.filter(m => m.id !== socket.id).map(m => m.id);
-    ack({ roomId: room.id, members: otherMembers });
 
   });
 
