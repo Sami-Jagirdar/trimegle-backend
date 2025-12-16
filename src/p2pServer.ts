@@ -56,13 +56,25 @@ io.on("connection", (socket: Socket) => {
 
     // Let new participant know they joined the room so they can send offers on client side
     const otherMembers = room.members.filter(m => m.id !== socket.id).map(m => m.id);
-    ack({ members: otherMembers });
+    ack({ members: otherMembers, roomId: room.id });
 
     if (room.members.length >= 3) {
       room.available = false;
     }
 
 
+  });
+
+  // We will need to authenticate users later to ensure only room members can leave
+  socket.on("leave", ({roomId, userId}) => {
+    const room = rooms[roomId];
+    if (room && room.members.some(member => member.id === userId)) {
+      room.members = room.members.filter(member => member.id !== userId);
+      socket.leave(roomId);
+      if (room.members.length < 3) {
+        room.available = true;
+      }
+    }
   });
 
   // **Have to create an event for users voting to kick
