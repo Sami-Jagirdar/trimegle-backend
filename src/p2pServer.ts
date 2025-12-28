@@ -4,6 +4,7 @@ import express from "express";
 import http from "http"; // TODO: http in dev, https in prod
 import 'dotenv/config';
 import { nanoid } from 'nanoid';
+import axios from 'axios';
 
 const app = express();
 const server = http.createServer(app);
@@ -16,11 +17,63 @@ const io = new Server(server, {
   },
 });
 
-const activeUsers: Record<string, User> = {};
+app.get('/api/ice-config', async (_, res) => {
+  try {
+    const response = await axios.post(
+      `https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CLOUDFARE_TURN_TOKEN_ID}/credentials/generate-ice-servers`,
+      { ttl: 86400 },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.CLOUDFARE_API_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
+    const cloudflareServers = response.data.iceServers;
+    console.log('Generated Cloudflare TURN credentials:', response.data);
+
+    res.json({
+      iceServers: [
+        // Public STUN servers (free, always available)
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        
+        // Cloudflare TURN servers (temporary credentials)
+        {
+          urls: cloudflareServers[1].urls,
+          username: cloudflareServers[1].username,
+          credential: cloudflareServers[1].credential
+        }
+      ]
+    });
+
+  } catch (error) {
+    console.error('Error generating Cloudflare TURN credentials:', {
+      message: error.message,
+      response: error.response?.data
+    });
+    
+    // Return public STUN as fallback
+    res.status(500).json({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    });
+  }
+});
+
+const activeUsers: Record<string, User> = {};
 const rooms: Record<string, Room> = {};
+
+// TODO: Decide if user shouldn't be able to join the room they just left
 // Find a room with < 3 members
 function findAvailableRoom(): Room | null {
+  const twoMemberRooms = Object.values(rooms).filter(room => room.available && room.members.length === 2);
+  if (twoMemberRooms.length > 0) {
+    return twoMemberRooms[Math.floor(Math.random() * twoMemberRooms.length)];
+  }
   for (const room of Object.values(rooms)) {
     if (room.available && room.members.length < 3) return room;
   }
@@ -104,4 +157,3 @@ io.on("connection", (socket: Socket) => {
 server.listen(process.env.PORT, () => {
   console.log("Server listening on ", process.env.PORT);
 });
-
