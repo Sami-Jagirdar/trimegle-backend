@@ -5,10 +5,18 @@ import http from "http"; // TODO: http in dev, https in prod
 import 'dotenv/config';
 import { nanoid } from 'nanoid';
 import axios from 'axios';
+import cors from 'cors';
 
 const app = express();
 const server = http.createServer(app);
 const allowedOrigins = process.env.CORS_WHITELIST?.split(",") || [];
+console.log("Allowed origins:", allowedOrigins);
+
+app.use(cors({
+  origin: allowedOrigins,
+  methods: ["GET", "POST"],
+  credentials: false // only for now, since no auth cookies are used
+}));
 
 const io = new Server(server, {
   cors: {
@@ -68,6 +76,7 @@ const activeUsers: Record<string, User> = {};
 const rooms: Record<string, Room> = {};
 
 // TODO: Decide if user shouldn't be able to join the room they just left
+
 // Find a room with < 3 members
 function findAvailableRoom(): Room | null {
   const twoMemberRooms = Object.values(rooms).filter(room => room.available && room.members.length === 2);
@@ -78,6 +87,38 @@ function findAvailableRoom(): Room | null {
     if (room.available && room.members.length < 3) return room;
   }
   return null;
+}
+
+function removeUserFromRoom(socket: Socket, userId: string): void {
+  // Find the room this user is in
+  const roomId = Array.from(socket.rooms).find(room => room !== socket.id);
+  
+  if (!roomId) {
+    console.log(`User ${userId} not in any room`);
+    return;
+  }
+
+  const room = rooms[roomId];
+  
+  if (room) {
+    // Remove user from room
+    room.members = room.members.filter(member => member.id !== userId);
+    console.log(`User ${userId} removed from room ${roomId}. Remaining members: ${room.members.length}`);
+    
+    // Notify other room members
+    socket.to(roomId).emit("peer-disconnected", { socketId: userId });
+    
+    // Make room available if under capacity
+    if (room.members.length < 3) {
+      room.available = true;
+    }
+    
+    // Clean up empty rooms
+    if (room.members.length === 0) {
+      console.log(`Room ${roomId} is empty, removing`);
+      delete rooms[roomId];
+    }
+  }
 }
 
 io.on("connection", (socket: Socket) => {
@@ -124,8 +165,15 @@ io.on("connection", (socket: Socket) => {
     if (room && room.members.some(member => member.id === userId)) {
       room.members = room.members.filter(member => member.id !== userId);
       socket.leave(roomId);
+      // Notify remaining members
+      socket.to(roomId).emit("peer-disconnected", { socketId: userId });
       if (room.members.length < 3) {
         room.available = true;
+      }
+
+      if (room.members.length === 0) {
+        console.log(`Room ${roomId} is empty after last client left, removing`);
+        delete rooms[roomId];
       }
     }
   });
@@ -149,7 +197,8 @@ io.on("connection", (socket: Socket) => {
 
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
-    io.emit("peer-disconnected", { socketId: socket.id });
+    removeUserFromRoom(socket, socket.id);
+    delete activeUsers[socket.id];
   });
 
 })
