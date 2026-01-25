@@ -30,6 +30,8 @@ export interface User {
   created_at: Date;
   updated_at: Date;
   is_banned: boolean;
+  avatar_url?: string;
+  lastLogin?: Date;
 }
 
 export const db = {

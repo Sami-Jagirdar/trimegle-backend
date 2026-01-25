@@ -6,11 +6,13 @@ import 'dotenv/config';
 import { nanoid } from 'nanoid';
 import axios from 'axios';
 import cors from 'cors';
+import { db } from './sql/db.ts';
+import { verifyToken, JWTPayload } from './util/auth.ts';
+import authRoutes from './routes/auth.ts';
 
 const app = express();
 const server = http.createServer(app);
 const allowedOrigins = process.env.CORS_WHITELIST?.split(",") || [];
-console.log("Allowed origins:", allowedOrigins);
 
 app.use(cors({
   origin: allowedOrigins,
@@ -22,7 +24,14 @@ const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     methods: ["GET", "POST"],
+    credentials: true
   },
+});
+
+app.use('/auth', authRoutes);
+
+app.get('/health', (_, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 app.get('/api/ice-config', async (_, res) => {
@@ -71,6 +80,34 @@ app.get('/api/ice-config', async (_, res) => {
     });
   }
 });
+
+interface AuthenticatedSocket extends Socket {
+  user?: JWTPayload;
+}
+
+// use is a middleware (like a function) that runs for every incoming socket connection
+io.use(async (socket: AuthenticatedSocket, next) => {
+  try {
+    // socket comes from client with token in handshake auth
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      return next(new Error("Authentication error: No token provided"));
+    }
+    const decoded = verifyToken(token);
+    const user = await db.getUserbyId(decoded.userId);
+    if (!user) {
+      return next(new Error("Authentication error: User not found"));
+    }
+    if (user.is_banned) {
+      return next(new Error("Authentication error: User is banned"));
+    }
+    socket.user = decoded;
+    next();
+
+  } catch {
+    next(new Error("Authentication error"));
+  }
+})
 
 const activeUsers: Record<string, User> = {};
 const rooms: Record<string, Room> = {};
@@ -121,7 +158,7 @@ function removeUserFromRoom(socket: Socket, userId: string): void {
   }
 }
 
-io.on("connection", (socket: Socket) => {
+io.on("connection", (socket: AuthenticatedSocket) => {
   console.log("new client: ", socket.id);
 
   // TODO Must create a schema for the socket.data and ensure it has name property
