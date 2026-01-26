@@ -6,8 +6,8 @@ import 'dotenv/config';
 
 const router = express.Router();
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_AUTH_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_AUTH_CLIENT_SECRET!;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
