@@ -159,6 +159,21 @@ export const redis = {
         }
     },
 
+    async findAvailableRoom(filterRoomId?: string): Promise<Room | null> {
+        const rooms: Room[] = await this.getAllRooms();
+        const availableRooms: Room[] = rooms.filter(room => room.available && room.members.length < 3);
+        if (availableRooms.length === 0) return null;
+
+        const filteredRooms = filterRoomId ? availableRooms.filter(room => room.id !== filterRoomId) : availableRooms; 
+
+        const twoMemberRooms = filteredRooms.filter(room => room.members.length === 2);
+        if (twoMemberRooms.length > 0) {
+            return twoMemberRooms[Math.floor(Math.random() * twoMemberRooms.length)];
+        }
+
+        return filteredRooms[Math.floor(Math.random() * filteredRooms.length)];
+    },
+
     async checkRateLimit(key: string, limit: number, durationSeconds: number): Promise<boolean> {
         const current = await redisClient.incr(key);
         if (current === 1) {

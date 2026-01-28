@@ -1,4 +1,3 @@
-// Starts the server that listens for new connection requests.
 import { Server, Socket } from 'socket.io';
 import express from "express";
 import http from "http"; // TODO: http in dev, https in prod
@@ -9,6 +8,7 @@ import cors from 'cors';
 import { db } from './sql/db.ts';
 import { verifyToken, JWTPayload } from './util/auth.ts';
 import authRoutes from './routes/auth.ts';
+import { ActiveUser, redis } from './util/redis.ts';
 
 const app = express();
 const server = http.createServer(app);
@@ -109,137 +109,138 @@ io.use(async (socket: AuthenticatedSocket, next) => {
   }
 })
 
-const activeUsers: Record<string, User> = {};
-const rooms: Record<string, Room> = {};
 
-// TODO: Decide if user shouldn't be able to join the room they just left
 
-// Find a room with < 3 members
-function findAvailableRoom(): Room | null {
-  const twoMemberRooms = Object.values(rooms).filter(room => room.available && room.members.length === 2);
-  if (twoMemberRooms.length > 0) {
-    return twoMemberRooms[Math.floor(Math.random() * twoMemberRooms.length)];
-  }
-  for (const room of Object.values(rooms)) {
-    if (room.available && room.members.length < 3) return room;
-  }
-  return null;
-}
-
-function removeUserFromRoom(socket: Socket, userId: string): void {
-  // Find the room this user is in
-  const roomId = Array.from(socket.rooms).find(room => room !== socket.id);
-  
-  if (!roomId) {
-    console.log(`User ${userId} not in any room`);
-    return;
-  }
-
-  const room = rooms[roomId];
-  
-  if (room) {
-    // Remove user from room
-    room.members = room.members.filter(member => member.id !== userId);
-    console.log(`User ${userId} removed from room ${roomId}. Remaining members: ${room.members.length}`);
-    
-    // Notify other room members
-    socket.to(roomId).emit("peer-disconnected", { socketId: userId });
-    
-    // Make room available if under capacity
-    if (room.members.length < 3) {
-      room.available = true;
-    }
-    
-    // Clean up empty rooms
-    if (room.members.length === 0) {
-      console.log(`Room ${roomId} is empty, removing`);
-      delete rooms[roomId];
-    }
-  }
-}
-
-io.on("connection", (socket: AuthenticatedSocket) => {
-  console.log("new client: ", socket.id);
+io.on("connection", async (socket: AuthenticatedSocket) => {
+  const user = socket.user!;
+  console.log(`User connected: ${user.name} (ID: ${user.userId}, Socket: ${socket.id})`);
 
   // TODO Must create a schema for the socket.data and ensure it has name property
-  const user = {
-    id: socket.id,
-    username: socket.data.name
-  };
+  // const user = {
+  //   id: socket.id,
+  //   username: socket.data.name
+  // };
 
-  // TODO for now key is socket.id, later it will be the username when users are authenticated
-  activeUsers[socket.id] = user;
+  try {
+    await redis.setUserOnline(user.userId, socket.id, user.name, user.avatarUrl);
 
-  // **User attempts to join a room
-  socket.on("join", (ack) => {
-    let room = findAvailableRoom();
-    if (!room) {
-      room = {
-        id: nanoid(10),
-        members: [],
-        available: true,
+    socket.on('join', async (ack) => {
+      try {
+        const isBanned = await db.isUserBanned(user.userId);
+        if (isBanned) {
+          ack({error: "Account Banned"});
+          socket.disconnect();
+          return;
+        }
+
+        let room = await redis.findAvailableRoom();
+        if (!room) {
+          const roomId = nanoid(10);
+          await redis.createRoom(roomId);
+          room = await redis.getRoom(roomId);
+        }
+        
+        if (!room) {
+          ack({error: "Failed to create or find room"});
+          return;
+        }
+
+        const activeUser: ActiveUser = {
+          userId: user.userId,
+          socketId: socket.id,
+          username: user.name,
+          avatarUrl: user.avatarUrl,
+          roomId: room.id,
+          connectedAt: Date.now(),
+          lastJoinedRoomId: null
+        };
+
+        await redis.addUserToRoom(room.id, activeUser);
+        socket.join(room.id);
+        const updatedRoom = await redis.getRoom(room.id);
+        const otherMembers = room.members
+          .filter(m => m.userId !== user.userId)
+          .map(m => m.socketId);
+        ack({ members: otherMembers, roomId: room.id });
+        console.log(`User ${user.name} joined room ${room.id}. Room size: ${updatedRoom!.members.length}`);
+
+      } catch (error) {
+        console.error('Error in join handler:', error);
       }
-      rooms[room.id] = room;
-    }
-
-    room.members.push(user);
-    socket.join(room.id);
-
-    // Let new participant know they joined the room so they can send offers on client side
-    const otherMembers = room.members.filter(m => m.id !== socket.id).map(m => m.id);
-    ack({ members: otherMembers, roomId: room.id });
-
-    if (room.members.length >= 3) {
-      room.available = false;
-    }
 
 
-  });
 
-  // We will need to authenticate users later to ensure only room members can leave
-  socket.on("leave", ({roomId, userId}) => {
-    const room = rooms[roomId];
-    if (room && room.members.some(member => member.id === userId)) {
-      room.members = room.members.filter(member => member.id !== userId);
-      socket.leave(roomId);
-      // Notify remaining members
-      socket.to(roomId).emit("peer-disconnected", { socketId: userId });
-      if (room.members.length < 3) {
-        room.available = true;
+    });
+
+
+    socket.on('leave', async ({roomId}) => {
+      try {
+        const room = await redis.getRoom(roomId);
+
+        if (room && room.members.some(member => member.userId === user.userId)) {
+          await redis.removeUserFromRoom(roomId, user.userId);
+          socket.leave(roomId);
+          // Notify remaining members
+          socket.to(roomId).emit("peer-disconnected", { socketId: socket.id });
+          console.log(`User ${user.name} left room ${roomId}`);
+        }
+      } catch (error) {
+        console.error('Error in leave handler:', error);
       }
+    });
 
-      if (room.members.length === 0) {
-        console.log(`Room ${roomId} is empty after last client left, removing`);
-        delete rooms[roomId];
+    // **Offer
+    socket.on("offer", ({to, sdp}) => {
+      io.to(to).emit("offer", {from: socket.id, sdp});
+    });
+
+    // **Answer
+    socket.on("answer", ({to, sdp}) => {
+      io.to(to).emit("answer", {from: socket.id, sdp});
+    });
+
+    // **ICE Candidates
+    socket.on("ice-candidate", ({to, candidate}) => {
+      io.to(to).emit("ice-candidate", {from: socket.id, candidate})
+    });
+
+    socket.on("disconnect", async () => {
+      console.log(`User disconnected: ${user.name} (Socket: ${socket.id})`);
+
+      try {
+        const activeUser = await redis.getUser(user.userId);
+        if (activeUser?.roomId) {
+          const room = await redis.getRoom(activeUser.roomId);
+          if (room) {
+            // Notify other members in the room
+            await redis.removeUserFromRoom(room.id, user.userId);
+            socket.to(room.id).emit("peer-disconnected", { socketId: socket.id });
+            console.log(`Notified room ${room.id} of ${user.name}'s disconnection.`);
+          }
+        }
+        await redis.setUserOffline(user.userId, socket.id);
+
+      } catch (error) {
+        console.error('Error handling disconnect room cleanup:', error);
       }
-    }
-  });
+    });
 
-  // **Have to create an event for users voting to kick
+  } catch (error) {
+    console.error('Error in connection handler:', error);
+    socket.disconnect();
+  }
 
-  // **Offer
-  socket.on("offer", ({to, sdp}) => {
-    io.to(to).emit("offer", {from: socket.id, sdp});
-  });
-
-  // **Answer
-  socket.on("answer", ({to, sdp}) => {
-    io.to(to).emit("answer", {from: socket.id, sdp});
-  });
-
-  // **ICE Candidates
-  socket.on("ice-candidate", ({to, candidate}) => {
-    io.to(to).emit("ice-candidate", {from: socket.id, candidate})
-  })
-
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
-    removeUserFromRoom(socket, socket.id);
-    delete activeUsers[socket.id];
-  });
 
 })
 
 server.listen(process.env.PORT, () => {
   console.log("Server listening on ", process.env.PORT);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
 });
