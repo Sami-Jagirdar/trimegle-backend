@@ -1,7 +1,7 @@
 import express from 'express';
 import axios from 'axios';
-import { db } from '../sql/db.ts';
-import { generateToken } from '../util/auth.ts';
+import { db } from '../sql/db.js';
+import { generateToken } from '../util/auth.js';
 import 'dotenv/config';
 
 const router = express.Router();

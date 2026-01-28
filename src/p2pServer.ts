@@ -5,10 +5,10 @@ import 'dotenv/config';
 import { nanoid } from 'nanoid';
 import axios from 'axios';
 import cors from 'cors';
-import { db } from './sql/db.ts';
-import { verifyToken, JWTPayload } from './util/auth.ts';
-import authRoutes from './routes/auth.ts';
-import { ActiveUser, redis } from './util/redis.ts';
+import { db } from './sql/db.js';
+import { verifyToken, JWTPayload } from './util/auth.js';
+import authRoutes from './routes/auth.js';
+import { ActiveUser, redis } from './util/redis.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -27,6 +27,8 @@ const io = new Server(server, {
     credentials: true
   },
 });
+
+app.set("trust proxy", 1);
 
 app.use('/auth', authRoutes);
 

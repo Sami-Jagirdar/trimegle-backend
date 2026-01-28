@@ -32,12 +32,12 @@
     "vitest": "~2.1"
   },
   "scripts": {
-    "start": "node dist/p2pServer.js",
+    "start": "node build/p2pServer.js",
     "devp2p": "tsx watch src/p2pServer.ts",
     "clean": "rimraf coverage build tmp",
     "prebuild": "npm run lint",
-    "build": "tsc -p tsconfig.json",
-    "build:watch": "tsc -w -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "build:watch": "tsc -w -p tsconfig.build.json",
     "build:release": "npm run clean && tsc -p tsconfig.release.json",
     "lint": "eslint .",
     "test": "vitest run unit --config __tests__/vitest.config.ts",
