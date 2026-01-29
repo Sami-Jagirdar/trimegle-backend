@@ -11,7 +11,7 @@ CREATE TABLE users (
     is_banned BOOLEAN DEFAULT FALSE,
     avatar_url VARCHAR(500),
     last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
+);
 
 -- Indexes for faster lookups
 CREATE INDEX idx_users_google_id ON users(google_id);

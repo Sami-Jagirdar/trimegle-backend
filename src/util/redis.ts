@@ -4,6 +4,7 @@ import 'dotenv/config';
 const redisClient = createClient({
     url: process.env.REDIS_URL,
     socket: {
+        tls: process.env.NODE_ENV === 'production' ? true : undefined,
         reconnectStrategy: (retries) => {
             if (retries > 10) {
                 console.error("Unable to connect to Redis after 10 attempts.");
