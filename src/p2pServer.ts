@@ -50,6 +50,14 @@ app.get('/api/ice-config', async (_, res) => {
     );
 
     const cloudflareServers = response.data.iceServers;
+    const turnServer = cloudflareServers.find(server => 
+      Array.isArray(server.urls)
+    );
+    const turnServers = turnServer.urls.map(url => ({
+      urls: url,
+      username: turnServer.username,
+      credential: turnServer.credential
+    }));
     console.log('Generated Cloudflare TURN credentials:', response.data);
 
     res.json({
@@ -57,13 +65,9 @@ app.get('/api/ice-config', async (_, res) => {
         // Public STUN servers (free, always available)
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
+        ...turnServers // Cloudflare TURN servers 
         
-        // Cloudflare TURN servers (temporary credentials)
-        {
-          urls: cloudflareServers[1].urls,
-          username: cloudflareServers[1].username,
-          credential: cloudflareServers[1].credential
-        }
+        
       ]
     });
 
