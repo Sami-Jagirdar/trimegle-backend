@@ -56,9 +56,9 @@ app.get('/api/ice-config', async (_, res) => {
     res.json({
       iceServers: [
         // Public STUN servers (free, always available)
-        // { urls: 'stun:stun.l.google.com:19302' },
-        // { urls: 'stun:stun1.l.google.com:19302' },
-        cloudflareServers // Cloudflare TURN servers 
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        ...cloudflareServers // Cloudflare STUN and TURN servers 
       ]
     });
 
